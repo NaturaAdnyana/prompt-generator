@@ -1,6 +1,6 @@
 "use client";
 
-import { ChangeEvent, ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import { ChangeEvent, ReactNode, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -53,17 +53,6 @@ type SerializableInteraction = Omit<Interaction, "id" | "updatedAt"> & {
   updatedAt?: string;
 };
 
-type StoredPromptState = {
-  interactions: Interaction[];
-  activeId: string;
-};
-
-const DB_NAME = "prompt-generator-db";
-const DB_VERSION = 1;
-const STORE_NAME = "prompt-workspace";
-const WORKSPACE_KEY = "current-workspace";
-const DISPLAY_TIME_ZONE = "Asia/Jakarta";
-
 const createId = () =>
   typeof crypto !== "undefined" && "randomUUID" in crypto
     ? crypto.randomUUID()
@@ -115,141 +104,17 @@ const formatTime = (date: string) =>
   new Intl.DateTimeFormat("id-ID", {
     dateStyle: "medium",
     timeStyle: "short",
-    timeZone: DISPLAY_TIME_ZONE,
   }).format(new Date(date));
-
-const openPromptDatabase = () =>
-  new Promise<IDBDatabase>((resolve, reject) => {
-    const request = indexedDB.open(DB_NAME, DB_VERSION);
-
-    request.onupgradeneeded = () => {
-      const database = request.result;
-      if (!database.objectStoreNames.contains(STORE_NAME)) {
-        database.createObjectStore(STORE_NAME);
-      }
-    };
-
-    request.onsuccess = () => resolve(request.result);
-    request.onerror = () => reject(request.error);
-  });
-
-const readPromptState = async () => {
-  const database = await openPromptDatabase();
-
-  return new Promise<StoredPromptState | null>((resolve, reject) => {
-    const transaction = database.transaction(STORE_NAME, "readonly");
-    const store = transaction.objectStore(STORE_NAME);
-    const request = store.get(WORKSPACE_KEY);
-
-    request.onsuccess = () => resolve(request.result ?? null);
-    request.onerror = () => reject(request.error);
-    transaction.oncomplete = () => database.close();
-    transaction.onerror = () => {
-      database.close();
-      reject(transaction.error);
-    };
-  });
-};
-
-const writePromptState = async (state: StoredPromptState) => {
-  const database = await openPromptDatabase();
-
-  return new Promise<void>((resolve, reject) => {
-    const transaction = database.transaction(STORE_NAME, "readwrite");
-    const store = transaction.objectStore(STORE_NAME);
-    store.put(state, WORKSPACE_KEY);
-
-    transaction.oncomplete = () => {
-      database.close();
-      resolve();
-    };
-    transaction.onerror = () => {
-      database.close();
-      reject(transaction.error);
-    };
-  });
-};
-
-const sanitizeStoredState = (state: StoredPromptState | null): StoredPromptState => {
-  if (!state || !Array.isArray(state.interactions) || state.interactions.length === 0) {
-    return { interactions: defaultInteractions, activeId: defaultInteractions[0].id };
-  }
-
-  const interactions = state.interactions.map((interaction, interactionIndex) => {
-    const variables = Array.isArray(interaction.variables) && interaction.variables.length > 0
-      ? interaction.variables.map((variable, variableIndex) => ({
-          id: variable.id || createId(),
-          key: normalizeKey(variable.key || `value_${variableIndex + 1}`),
-          label: variable.label || `Value ${variableIndex + 1}`,
-          value: variable.value || "",
-        }))
-      : [{ id: createId(), key: "value_1", label: "Value 1", value: "" }];
-
-    return {
-      id: interaction.id || createId(),
-      title: interaction.title || `Interaksi ${interactionIndex + 1}`,
-      description: interaction.description || "Template prompt custom.",
-      variables,
-      template: interaction.template || "Tulis prompt Anda di sini dan sisipkan value seperti {{value_1}}.",
-      updatedAt: interaction.updatedAt || new Date().toISOString(),
-    };
-  });
-
-  const activeId = interactions.some((interaction) => interaction.id === state.activeId)
-    ? state.activeId
-    : interactions[0].id;
-
-  return { interactions, activeId };
-};
 
 export default function Home() {
   const [interactions, setInteractions] = useState<Interaction[]>(defaultInteractions);
   const [activeId, setActiveId] = useState(defaultInteractions[0].id);
-  const [isHydratedFromDatabase, setIsHydratedFromDatabase] = useState(false);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
-  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [copyState, setCopyState] = useState<"idle" | "copied">("idle");
   const templateRef = useRef<HTMLTextAreaElement>(null);
   const importRef = useRef<HTMLInputElement>(null);
 
   const activeInteraction = interactions.find((interaction) => interaction.id === activeId) ?? interactions[0];
-
-  useEffect(() => {
-    let isMounted = true;
-
-    readPromptState()
-      .then((storedState) => {
-        if (!isMounted) {
-          return;
-        }
-
-        const sanitizedState = sanitizeStoredState(storedState);
-        setInteractions(sanitizedState.interactions);
-        setActiveId(sanitizedState.activeId);
-      })
-      .catch((error) => {
-        console.error("Gagal membaca data IndexedDB:", error);
-      })
-      .finally(() => {
-        if (isMounted) {
-          setIsHydratedFromDatabase(true);
-        }
-      });
-
-    return () => {
-      isMounted = false;
-    };
-  }, []);
-
-  useEffect(() => {
-    if (!isHydratedFromDatabase) {
-      return;
-    }
-
-    writePromptState({ interactions, activeId }).catch((error) => {
-      console.error("Gagal menyimpan data IndexedDB:", error);
-    });
-  }, [activeId, interactions, isHydratedFromDatabase]);
 
   const generatedPrompt = useMemo(
     () => interpolateTemplate(activeInteraction.template, activeInteraction.variables),
@@ -329,24 +194,6 @@ export default function Home() {
     if (activeId === id) {
       setActiveId(nextInteractions[0].id);
     }
-  };
-
-  const toggleSidebar = () => {
-    if (window.matchMedia("(min-width: 1024px)").matches) {
-      setIsSidebarCollapsed((current) => !current);
-      return;
-    }
-
-    setIsSidebarOpen((current) => !current);
-  };
-
-  const closeSidebar = () => {
-    if (window.matchMedia("(min-width: 1024px)").matches) {
-      setIsSidebarCollapsed(true);
-      return;
-    }
-
-    setIsSidebarOpen(false);
   };
 
   const insertVariableToken = (key: string) => {
@@ -436,9 +283,8 @@ export default function Home() {
     <main className="flex min-h-screen bg-[#f7f7f8] text-slate-950">
       <aside
         className={cn(
-          "fixed inset-y-0 left-0 z-40 flex w-80 -translate-x-full flex-col border-r border-slate-800 bg-[#171717] text-white transition-[margin,transform] duration-300 lg:static lg:translate-x-0",
+          "fixed inset-y-0 left-0 z-40 flex w-80 -translate-x-full flex-col border-r border-slate-800 bg-[#171717] text-white transition-transform duration-300 lg:static lg:translate-x-0",
           isSidebarOpen && "translate-x-0",
-          isSidebarCollapsed && "lg:-ml-80 lg:-translate-x-full",
         )}
       >
         <div className="flex items-center justify-between border-b border-white/10 p-4">
@@ -451,7 +297,7 @@ export default function Home() {
               <p className="text-xs text-white/55">Template untuk chat AI asli</p>
             </div>
           </div>
-          <Button className="text-white hover:bg-white/10 hover:text-white" variant="ghost" size="icon" onClick={closeSidebar} aria-label="Tutup sidebar">
+          <Button className="lg:hidden" variant="ghost" size="icon" onClick={() => setIsSidebarOpen(false)}>
             <X className="h-5 w-5" />
           </Button>
         </div>
@@ -462,7 +308,7 @@ export default function Home() {
             Interaksi baru
           </Button>
           <input ref={importRef} className="hidden" type="file" accept="application/json" onChange={importInteraction} />
-          <Button className="w-full justify-start gap-2 border-white bg-white text-slate-950 hover:bg-slate-100 hover:text-slate-950" variant="outline" onClick={() => importRef.current?.click()}>
+          <Button className="w-full justify-start gap-2 border-white/15 text-white hover:bg-white/10" variant="outline" onClick={() => importRef.current?.click()}>
             <Upload className="h-4 w-4" />
             Import JSON ke interaksi
           </Button>
@@ -511,7 +357,7 @@ export default function Home() {
       <section className="flex min-w-0 flex-1 flex-col">
         <header className="sticky top-0 z-20 flex h-16 items-center justify-between border-b bg-white/90 px-4 backdrop-blur md:px-8">
           <div className="flex items-center gap-3">
-            <Button variant="ghost" size="icon" onClick={toggleSidebar} aria-label="Buka atau tutup sidebar">
+            <Button className="lg:hidden" variant="ghost" size="icon" onClick={() => setIsSidebarOpen(true)}>
               <Menu className="h-5 w-5" />
             </Button>
             <div>
