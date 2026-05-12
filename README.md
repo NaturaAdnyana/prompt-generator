@@ -2,12 +2,15 @@
 
 Aplikasi Next.js bergaya ChatGPT untuk membuat prompt reusable dari daftar value dinamis. Pengguna dapat:
 
+- Memulai dari sidebar kosong tanpa list chat bawaan.
 - Mengelola beberapa interaksi/template dari sidebar yang bisa dibuka dan ditutup.
-- Menambah, mengubah, dan menghapus value prompt dengan minimal 1 value aktif.
+- Menambah, mengubah, dan menghapus value prompt dengan minimal 1 value aktif di setiap interaksi.
 - Menyisipkan token `{{nama_value}}` ke template markdown tanpa mengedit hasil akhir secara manual.
-- Menyalin prompt final yang sudah terisi value.
+- Mengedit prompt memakai editor markdown dengan toolbar format dan preview markdown.
+- Menyalin prompt final atau membukanya langsung di ChatGPT melalui URL `https://chatgpt.com/?q=...`.
 - Menyimpan workspace (interaksi aktif, template, dan semua value) secara otomatis di IndexedDB browser.
 - Export konfigurasi ke JSON dan import JSON sebagai interaksi baru agar mudah dibagikan.
+- Mengakses UI berbahasa Indonesia atau Inggris lewat routing locale `/id` dan `/en`.
 
 ## Menjalankan lokal
 
@@ -16,7 +19,7 @@ npm install
 npm run dev
 ```
 
-Buka `http://localhost:3000`.
+Buka `http://localhost:3000`. Middleware akan mengarahkan ke locale default `/id`.
 
 ## Scripts
 
